@@ -1,0 +1,7 @@
+target/
+*.ome.tiff/
+*.ome.tif
+__pycache__/
+*.pyc
+.idea/
+*.iml
