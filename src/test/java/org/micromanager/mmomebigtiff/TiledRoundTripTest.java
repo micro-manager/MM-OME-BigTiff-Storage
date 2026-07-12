@@ -153,6 +153,78 @@ public class TiledRoundTripTest {
    }
 
    @Test
+   void tiledPyramidLevelsMatchDownsample(@TempDir Path dir) {
+      long cw = 200;
+      long ch = 150;
+      int tw = 64;
+      int th = 64;
+      OMEBigTiffStorageConfig cfg = new OMEBigTiffStorageConfig()
+            .fullPlaneSize(cw, ch)
+            .tileSize(tw, th)
+            .numResolutionLevels(3)
+            .addAxis(AxisInfo.builder("channel").type(DimensionType.CHANNEL).count(1).build());
+      OMEBigTiffStorage store = new OMEBigTiffStorage(dir.toString(), "pyr", null, cfg);
+      Map<String, Object> a = new HashMap<>();
+      a.put("channel", 0);
+      writePlaneTiles(store, a, cw, ch, tw, th);
+      store.finishedWriting();
+      assertEquals(3, store.getNumResLevels());
+
+      // Reference: repeatedly 2x2-downsample the full level-0 image.
+      short[] full = refRegion(0, 0, (int) cw, (int) ch);
+      int w0 = (int) cw;
+      int h0 = (int) ch;
+      short[] lvl1 = (short[]) Downsampler.downsample(full, w0, h0, PixelType.GRAY16);
+      int w1 = Downsampler.downWidth(w0);
+      int h1 = Downsampler.downHeight(h0);
+      short[] lvl2 = (short[]) Downsampler.downsample(lvl1, w1, h1, PixelType.GRAY16);
+      int w2 = Downsampler.downWidth(w1);
+      int h2 = Downsampler.downHeight(h1);
+
+      // Whole level-1 and level-2 (small enough to fetch as one array) match the downsample.
+      assertArrayEquals(lvl1, (short[]) store.getImage(a, 1).pix);
+      assertArrayEquals(lvl2, (short[]) store.getImage(a, 2).pix);
+      assertEquals(w1, store.getEssentialImageMetadata(a, 1).getWidth());
+      assertEquals(h2, store.getEssentialImageMetadata(a, 2).getHeight());
+      store.close();
+
+      // Reopen: pyramid levels are discovered from SubIFDs.
+      OMEBigTiffStorage re = OMEBigTiffStorage.load(store.getDiskLocation());
+      assertEquals(3, re.getNumResLevels());
+      assertArrayEquals(lvl1, (short[]) re.getImage(a, 1).pix);
+      assertArrayEquals(lvl2, (short[]) re.getImage(a, 2).pix);
+      re.close();
+   }
+
+   @Test
+   void readWhileWritePendingTile(@TempDir Path dir) {
+      long cw = 130;
+      long ch = 96;
+      int tw = 64;
+      int th = 32;
+      OMEBigTiffStorageConfig cfg = new OMEBigTiffStorageConfig()
+            .fullPlaneSize(cw, ch)
+            .tileSize(tw, th)
+            .savingQueueSize(1000) // let tiles sit queued so we read from the pending buffer
+            .addAxis(AxisInfo.builder("channel").type(DimensionType.CHANNEL).count(1).build());
+      OMEBigTiffStorage store = new OMEBigTiffStorage(dir.toString(), "live", null, cfg);
+      Map<String, Object> a = new HashMap<>();
+      a.put("channel", 0);
+      // Queue exactly one tile and read a region within it immediately (before finishedWriting).
+      short[] tile = new short[tw * th];
+      for (int ty = 0; ty < th; ty++) {
+         for (int tx = 0; tx < tw; tx++) {
+            tile[ty * tw + tx] = val(tx, ty);
+         }
+      }
+      store.putTile(tile, null, a, 0, 0, false, 16);
+      OMEBigTiffImage reg = store.getRegion(a, 0, 5, 3, 20, 16);
+      assertNotNull(reg);
+      assertArrayEquals(refRegion(5, 3, 20, 16), (short[]) reg.pix);
+      store.close();
+   }
+
+   @Test
    void hugeCanvasBeyondArrayLimit(@TempDir Path dir) {
       long cw = 100_000;
       long ch = 100_000; // 1e10 px, ~47x the max Java array length

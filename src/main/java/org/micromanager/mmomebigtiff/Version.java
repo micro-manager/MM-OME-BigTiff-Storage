@@ -18,7 +18,8 @@ public final class Version {
 
    /** Layout/convention version of this library's on-disk output. */
    public static final int MAJOR = 1;
-   public static final int MINOR = 0;
+   /** Minor 1 adds the optional tiled layout (TIFF tags 322-325) for very large planes. */
+   public static final int MINOR = 1;
 
    /** {@code Software} tag value written into each TIFF file. */
    public static final String SOFTWARE = "MM-OME-BigTiff-Storage " + MAJOR + "." + MINOR;

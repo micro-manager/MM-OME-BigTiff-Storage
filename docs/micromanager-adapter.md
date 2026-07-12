@@ -79,6 +79,17 @@ downstream viewers, but the adapter neither reads nor is asked for levels > 0.
 Set `numResolutionLevels` on the config **before** the first image; the pyramid depth is fixed for
 the life of the file (see the README limitations).
 
+## Large mosaics (tiled mode)
+
+For acquisitions that stitch many fields into one very large plane (bigger than a Java array can
+hold), configure tiled mode instead of one `putImage` per plane: set
+`OMEBigTiffStorageConfig.fullPlaneSize(w, h)` and `tileSize(tw, th)`, declare fixed Z/C/T counts,
+and feed each camera field to `putTile(pixels, meta, axes, tileCol, tileRow, rgb, bitDepth)` at its
+grid position (the adapter computes `tileCol/tileRow` from the field's stage/tile index). Readers
+pull sub-regions with `getRegion(axes, level, x, y, w, h)`. This is the path to use when a
+Micro-Manager acquisition would otherwise exceed the single-strip / whole-array limits; ordinary
+single-frame acquisitions keep using `putImage`.
+
 ## Registering the backend
 
 To let Micro-Manager choose this backend, add a dataset-type sniff (analogous to

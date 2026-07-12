@@ -3,6 +3,7 @@ package org.micromanager.mmomebigtiff;
 import org.micromanager.mmomebigtiff.metadata.OmeXmlBuilder;
 import org.micromanager.mmomebigtiff.metadata.PerImageMetadataStore;
 import org.micromanager.mmomebigtiff.tiff.PlaneLocation;
+import org.micromanager.mmomebigtiff.tiff.Tiles;
 import org.micromanager.mmomebigtiff.tiff.TiffPyramidReader;
 import org.micromanager.mmomebigtiff.tiff.TiffPyramidWriter;
 import org.micromanager.mmomebigtiff.tiff.TiledTiffWriter;
@@ -77,6 +78,9 @@ public final class OMEBigTiffStorage implements MultiresOMEBigTiffAPI {
 
    // Read-during-write buffer (base image only; lower levels are synthesized on demand).
    private final Map<String, Pending> pending = new ConcurrentHashMap<>();
+   // Tiled read-during-write buffer: a level-0 tile is visible the instant it is queued, then
+   // dropped once the writer thread has flushed it to disk. Keyed by pos/plane/tileCol/tileRow.
+   private final Map<String, Object> pendingTiles = new ConcurrentHashMap<>();
    private final Map<String, String> customMetadata = new ConcurrentHashMap<>();
 
    // Dense index for string-valued axis positions (e.g. channel "DAPI"), per axis, in order of
@@ -205,6 +209,10 @@ public final class OMEBigTiffStorage implements MultiresOMEBigTiffAPI {
       if (readOnly || finished) {
          throw new IllegalStateException("Dataset is not writable.");
       }
+      if (config.isTiled()) {
+         throw new IllegalStateException("This dataset is tiled (a full plane size was declared); "
+               + "write with putTile(...) instead of putImage(...).");
+      }
       rethrowIfWriteFailed();
       if (!layoutResolved) {
          synchronized (this) {
@@ -271,15 +279,29 @@ public final class OMEBigTiffStorage implements MultiresOMEBigTiffAPI {
       final int plane = planeIndexOf(axesCopy);
       perImageMeta.put(axesKey, metadataJson);
       final boolean firstForPlane = appendedMeta.add(axesKey);
+      final String tileKey = tileKey(posIndex, plane, tileCol, tileRow);
+      pendingTiles.put(tileKey, tilePixels);
+      // Create the writer synchronously so its geometry and already-committed tiles are visible to
+      // concurrent readers even before this tile's write task runs.
+      final TiledTiffWriter writer;
+      try {
+         writer = tiledWriterFor(posIndex);
+      } catch (IOException e) {
+         throw new UncheckedIOException("Failed to open tiled writer for position " + posIndex, e);
+      }
 
       return submitWrite(() -> {
-         TiledTiffWriter writer = tiledWriterFor(posIndex);
          writer.writeTile(plane, 0, tileCol, tileRow, tilePixels);
+         pendingTiles.remove(tileKey);
          if (firstForPlane) {
             perImageMeta.append(axesCopy, metadataJson);
          }
          return null;
       });
+   }
+
+   private static String tileKey(int posIndex, int plane, int tileCol, int tileRow) {
+      return posIndex + "/" + plane + "/" + tileCol + "/" + tileRow;
    }
 
    private int tileWidthOrDefault() {
@@ -304,7 +326,7 @@ public final class OMEBigTiffStorage implements MultiresOMEBigTiffAPI {
       return w;
    }
 
-   private TiledTiffWriter tiledWriterFor(int posIndex) throws IOException {
+   private synchronized TiledTiffWriter tiledWriterFor(int posIndex) throws IOException {
       TiledTiffWriter w = tiledWriters.get(posIndex);
       if (w != null) {
          return w;
@@ -419,7 +441,20 @@ public final class OMEBigTiffStorage implements MultiresOMEBigTiffAPI {
             if (!perImageMeta.has(axesKey)) {
                return null;
             }
-            return tw.readRegion(planeIndexOf(axes), level, x, y, w, h);
+            final int plane = planeIndexOf(axes);
+            // Serve level-0 tiles still in the write queue from the pending buffer, so a tile is
+            // readable the instant it is queued; committed tiles and all pyramid levels come from
+            // the file.
+            return Tiles.readRegion((lvl, tc, tr) -> {
+               if (lvl == 0) {
+                  Object p = pendingTiles.get(tileKey(posIndex, plane, tc, tr));
+                  if (p != null) {
+                     return p;
+                  }
+               }
+               return tw.readTile(plane, lvl, tc, tr);
+            }, pixelType, level, tw.tileWidth(), tw.tileHeight(),
+                  tw.levelWidth(level), tw.levelHeight(level), x, y, w, h);
          }
          TiffPyramidReader r = readers.get(posIndex);
          if (r != null) {

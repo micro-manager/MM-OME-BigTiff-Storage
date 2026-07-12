@@ -485,12 +485,13 @@ public final class TiledTiffWriter implements AutoCloseable {
          if (subCount == 1) {
             e = entryLong8(buf, e, TAG_SUB_IFDS, TYPE_IFD8, planeIfdPos[1]);
          } else {
-            // Fill the SubIFDs array with the level 1..N-1 IFD offsets for this plane.
+            // Fill the SubIFDs array with the level 1..N-1 IFD offsets for this plane. Absolute
+            // putLong does not advance the buffer position, so writeAt (which rewinds and writes
+            // up to the limit) sends all bytes — do NOT flip() here, that would truncate to empty.
             ByteBuffer arr = ByteBuffer.allocate(8 * subCount).order(order);
             for (int l = 1; l < numLevels; l++) {
                arr.putLong((l - 1) * 8, planeIfdPos[l]);
             }
-            arr.flip();
             writeAt(subIfdsArrayPos, arr);
             e = entryOffset(buf, e, TAG_SUB_IFDS, TYPE_IFD8, subCount, subIfdsArrayPos);
          }

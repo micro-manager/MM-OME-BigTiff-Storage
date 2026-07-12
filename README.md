@@ -24,6 +24,10 @@ runnable example under `src/test/.../examples/`).
   QuPath, `tifffile`, ImageJ and libtiff.
 - **Automatic multiscale pyramid** by 2×2 block-averaging on `putImage` (configurable number of
   levels), written inline with each plane.
+- **Tiled output for very large planes.** Declare a full plane size and write the image as tiles
+  (`putTile`), so a plane far larger than a Java array (e.g. a 100,000 × 1,000,000 px stitched
+  mosaic) streams in tile-by-tile and readers fetch sub-regions (`getRegion`) by touching only the
+  covering tiles at the requested pyramid level. Emits standard tiled OME-TIFF (tags 322–325).
 - **Concurrent read-while-write**: reads during acquisition are served from an in-memory
   write-pending buffer, then from disk via positioned channel reads; downsampled levels of a
   still-queued image are synthesized on demand so every level is readable immediately.
@@ -61,6 +65,34 @@ store.close();
 // Re-open an existing dataset
 OMEBigTiffStorage ds = OMEBigTiffStorage.load("/data/acq.ome.tiff");
 ```
+
+### Very large (tiled) images
+
+For planes too large to hold in one array — stitched mosaics covering large areas — declare the
+full plane size and a tile size, then write tiles instead of whole planes. Nothing is ever
+allocated plane-sized, so memory stays proportional to a tile.
+
+```java
+OMEBigTiffStorageConfig cfg = new OMEBigTiffStorageConfig()
+    .fullPlaneSize(100_000, 1_000_000)    // canvas per plane (enables tiled mode)
+    .tileSize(512, 512)                    // multiples of 16
+    .numResolutionLevels(6)                // pyramid for zoomed-out viewing
+    // Tiled mode preallocates one IFD per plane, so Z/C/T counts must be fixed up front:
+    .addAxis(AxisInfo.builder("channel").type(DimensionType.CHANNEL).count(2).build());
+
+OMEBigTiffStorage store = new OMEBigTiffStorage("/data", "mosaic", summaryJson, cfg);
+Map<String,Object> axes = new HashMap<>(); axes.put("channel", 0);
+store.putTile(tilePixels /* short[512*512] */, meta, axes,
+              tileCol, tileRow, false /* rgb */, 16 /* bitDepth */);
+// ... write every tile of every plane ...
+store.finishedWriting();
+
+// Read only the pixels you need, at any pyramid level:
+OMEBigTiffImage region = store.getRegion(axes, 0 /* level */, x, y, w, h);
+```
+
+Whole-plane `getImage` still works for tiled planes that fit in an array (and for all pyramid
+levels small enough); on a plane too large it throws, directing you to `getRegion`.
 
 ## On-disk layout
 
@@ -129,5 +161,8 @@ python verify_tiff.py            # requires: tifffile, numpy
 - **OME dimension model.** Axes must map to OME-TIFF's `Z`/`C`/`T` (time→T, channel→C, z/space→Z),
   at most one axis per dimension, plus the position axis (separate files). Arbitrary custom axes
   are not representable in OME-TIFF and are rejected with a clear error.
-- **No within-plane XY tile stitching / mosaic assembly.** Multi-field acquisitions are stored as
-  separate positions rather than one stitched image.
+- **Tiled mode is fixed-grid.** Tiled mode needs the full plane size, tile size and Z/C/T counts
+  declared up front (the plane IFDs and tile-offset arrays are preallocated); these cannot grow
+  after the first `putTile`. The library does not itself place camera fields onto the canvas —
+  the caller decides each tile's `(tileCol, tileRow)`. Untiled (single-strip) mode remains the
+  default and still discovers dimension sizes dynamically.
