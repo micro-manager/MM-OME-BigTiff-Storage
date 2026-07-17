@@ -5,15 +5,41 @@
              https://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
-  <groupId>org.micromanager</groupId>
+  <groupId>org.micro-manager</groupId>
   <artifactId>MM-OME-BigTiff-Storage</artifactId>
-  <version>0.1.0-SNAPSHOT</version>
+  <version>0.1.0</version>
   <packaging>jar</packaging>
 
   <name>MM-OME-BigTiff-Storage</name>
   <description>High-performance streaming pyramidal OME-BigTIFF writer and reader with
     multiscale (SubIFD) pyramid support and concurrent read-while-write. Modeled on
     MM-OME-Zarr-Storage / NDTiffStorage; no dependency on Micro-Manager.</description>
+  <url>https://github.com/micro-manager/MM-OME-BigTiff-Storage</url>
+
+  <licenses>
+    <license>
+      <name>BSD 3-Clause License</name>
+      <url>https://opensource.org/licenses/BSD-3-Clause</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
+  <developers>
+    <developer>
+      <id>nicost</id>
+      <name>Nico Stuurman</name>
+      <url>https://github.com/nicost</url>
+      <organization>Micro-Manager</organization>
+      <organizationUrl>https://micro-manager.org</organizationUrl>
+    </developer>
+  </developers>
+
+  <scm>
+    <connection>scm:git:https://github.com/micro-manager/MM-OME-BigTiff-Storage.git</connection>
+    <developerConnection>scm:git:ssh://git@github.com/micro-manager/MM-OME-BigTiff-Storage.git</developerConnection>
+    <url>https://github.com/micro-manager/MM-OME-BigTiff-Storage</url>
+    <tag>HEAD</tag>
+  </scm>
 
   <properties>
     <!-- Target Java 8 so the jar is usable from the Micro-Manager build (which is Java 8).
@@ -58,40 +84,90 @@
         <version>3.2.5</version>
       </plugin>
 
-      <!--
-        Produces an additional self-contained "-all" jar bundling every runtime dependency
-        (jackson). This is what gets vendored into Micro-Manager's 3rdpartypublic/classext so
-        the Ant/Ivy build resolves a single artifact with no transitive-dependency configuration.
-        Build with: mvn package
-      -->
+      <!-- Maven Central requires a sources jar alongside the main artifact. -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-shade-plugin</artifactId>
-        <version>3.5.1</version>
+        <artifactId>maven-source-plugin</artifactId>
+        <version>3.3.1</version>
         <executions>
           <execution>
-            <phase>package</phase>
-            <goals><goal>shade</goal></goals>
-            <configuration>
-              <shadedArtifactAttached>true</shadedArtifactAttached>
-              <shadedClassifierName>all</shadedClassifierName>
-              <createDependencyReducedPom>false</createDependencyReducedPom>
-              <filters>
-                <filter>
-                  <artifact>*:*</artifact>
-                  <excludes>
-                    <exclude>META-INF/*.SF</exclude>
-                    <exclude>META-INF/*.DSA</exclude>
-                    <exclude>META-INF/*.RSA</exclude>
-                    <exclude>module-info.class</exclude>
-                  </excludes>
-                </filter>
-              </filters>
-            </configuration>
+            <id>attach-sources</id>
+            <goals><goal>jar-no-fork</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- Maven Central requires a javadoc jar alongside the main artifact.
+           doclint is disabled: Central only requires that a javadoc jar is
+           attached, not that every method has complete @param/@return tags.
+           Without this, the strict doclint fails the build on missing tags. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <version>3.6.3</version>
+        <configuration>
+          <doclint>none</doclint>
+        </configuration>
+        <executions>
+          <execution>
+            <id>attach-javadocs</id>
+            <goals><goal>jar</goal></goals>
           </execution>
         </executions>
       </plugin>
     </plugins>
   </build>
+
+  <!--
+    Release profile: signs every artifact with GPG and publishes to the Sonatype
+    Central Portal. Activate with `mvn -Prelease deploy`. Kept in a profile so
+    ordinary `mvn package` / `mvn install` builds don't require a GPG key.
+  -->
+  <profiles>
+    <profile>
+      <id>release</id>
+      <build>
+        <plugins>
+          <!-- Sign all artifacts (jar, sources, javadoc, pom) with GPG. -->
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <version>3.2.4</version>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>verify</phase>
+                <goals><goal>sign</goal></goals>
+                <configuration>
+                  <!-- Non-interactive signing for CI: read the passphrase from the
+                       gpg.passphrase property (supplied via -D or the GITHUB env) and
+                       use loopback pinentry so gpg never tries to prompt on a tty.
+                       Harmless for local interactive signing via the gpg-agent. -->
+                  <gpgArguments>
+                    <arg>--pinentry-mode</arg>
+                    <arg>loopback</arg>
+                  </gpgArguments>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+
+          <!-- Upload the signed bundle to the Sonatype Central Portal. -->
+          <plugin>
+            <groupId>org.sonatype.central</groupId>
+            <artifactId>central-publishing-maven-plugin</artifactId>
+            <version>0.5.0</version>
+            <extensions>true</extensions>
+            <configuration>
+              <publishingServerId>central</publishingServerId>
+              <!-- Leave manual: review and release from the Portal UI.
+                   Set to true to auto-publish once validation passes. -->
+              <autoPublish>false</autoPublish>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 
 </project>
