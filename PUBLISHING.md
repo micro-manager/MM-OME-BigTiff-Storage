@@ -126,8 +126,6 @@ After releasing, set `pom.xml` back to the next `-SNAPSHOT` version for ongoing 
 - `MM-OME-BigTiff-Storage-<version>.jar` — the library
 - `MM-OME-BigTiff-Storage-<version>-sources.jar` — sources (required by Central)
 - `MM-OME-BigTiff-Storage-<version>-javadoc.jar` — javadoc (required by Central)
-- `MM-OME-BigTiff-Storage-<version>-all.jar` — self-contained jar bundling all runtime
-  dependencies (jackson), used when vendoring into the Micro-Manager Ant/Ivy build
 - `MM-OME-BigTiff-Storage-<version>.pom` — the POM
 - A `.asc` GPG signature for each of the above
 
