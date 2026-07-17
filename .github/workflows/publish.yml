@@ -1,0 +1,48 @@
+name: Publish to Maven Central
+
+# Manual trigger only, for now. Run it from the Actions tab
+# ("Publish to Maven Central" -> "Run workflow").
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and sign only, do not upload to Central"
+        type: boolean
+        default: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      # setup-java imports the GPG private key and writes ~/.m2/settings.xml
+      # with a "central" server whose credentials come from the env vars named below.
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "8"
+          server-id: central
+          server-username: CENTRAL_USERNAME
+          server-password: CENTRAL_PASSWORD
+          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+          gpg-passphrase: GPG_PASSPHRASE
+          cache: maven
+
+      - name: Deploy
+        if: ${{ !inputs.dry_run }}
+        run: mvn -B -Prelease clean deploy
+        env:
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Dry run (build + sign, no upload)
+        if: ${{ inputs.dry_run }}
+        run: mvn -B -Prelease clean verify
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
