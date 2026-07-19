@@ -7,7 +7,7 @@ import org.micromanager.mmomebigtiff.Version;
 import java.util.List;
 
 /**
- * Builds a minimal, valid OME-XML (schema {@value Version#OME_SCHEMA}) description of one
+ * Builds a minimal, valid OME-XML (schema {@code 2016-06}) description of one
  * pyramidal image, to be embedded in the first IFD's {@code ImageDescription}.
  *
  * <p>Only the level-0 (full-resolution) IFDs are enumerated by {@code TiffData}; the pyramid
@@ -38,9 +38,13 @@ public final class OmeXmlBuilder {
     * @param type         pixel type
     * @param significantBits nominal significant bits per sample (e.g. 12 for a 12-bit camera);
     *                     values &lt;= 0 fall back to the storage bit width
-    * @param sizeX/Y      full-resolution width/height
-    * @param sizeZ/C/T    dimension sizes (each >= 1)
-    * @param physX/Y      physical pixel size along x/y
+    * @param sizeX        full-resolution width
+    * @param sizeY        full-resolution height
+    * @param sizeZ        Z dimension size (>= 1)
+    * @param sizeC        channel dimension size (>= 1)
+    * @param sizeT        time dimension size (>= 1)
+    * @param physX        physical pixel size along x
+    * @param physY        physical pixel size along y
     * @param unit         physical unit (mapped to an OME UnitsLength value)
     * @param channels     optional per-channel descriptions (may be null/short; padded generically)
     * @param planes       one entry per written full-resolution plane
